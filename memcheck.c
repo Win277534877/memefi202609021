@@ -1,68 +1,50 @@
-#include <efi.h>
-#include <efilib.h>
+#include <Uefi.h>
+#include <Library/UefiLib.h>
+#include <Library/UefiBootServicesTableLib.h>
+#include <Library/PrintLib.h>
+#include <Protocol/Smbios.h>
 
-EFI_SYSTEM_TABLE *ST;
-EFI_BOOT_SERVICES *BS;
-
-VOID WaitUserConfirm(CHAR16 *Msg)
+EFI_STATUS EFIAPI UefiMain (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable)
 {
-    EFI_INPUT_KEY key;
-    UINTN event_idx;
+  EFI_SMBIOS_PROTOCOL *Smbios = NULL;
+  EFI_STATUS Status;
+  UINTN DimmCount = 0;
 
-    ST->ConOut->ClearScreen(ST->ConOut);
-    ST->ConOut->SetCursorPosition(ST->ConOut, 0,2);
-    Print(L"===== MEMORY CHECK WARNING =====\n");
-    Print(Msg);
-    Print(L"\nPress ANY KEY to continue boot ...\n");
-
+  Status = gBS->LocateProtocol(&gEfiSmbiosProtocolGuid, NULL, (VOID**)&Smbios);
+  if (!EFI_ERROR(Status) && Smbios != NULL)
+  {
+    EFI_SMBIOS_HANDLE Handle = 0;
+    EFI_SMBIOS_TABLE_HEADER *Record;
     for(;;)
     {
-        BS->WaitForEvent(1, &ST->ConIn->WaitForKey, &event_idx);
-        if(!ST->ConIn->ReadKeyStroke(ST->ConIn, &key))
-        {
-            break;
-        }
+      Status = Smbios->GetNext(Smbios, &Handle, NULL, &Record);
+      if (Status != EFI_SUCCESS)
+        break;
+      if (Record->Type == 17)
+      {
+        DimmCount++;
+      }
     }
-    ST->ConOut->ClearScreen(ST->ConOut);
-}
+  }
 
-UINT32 GetMemoryDimmCount(VOID)
-{
-    EFI_MEMORY_DESCRIPTOR *MemDesc;
-    UINTN MapSize, DescriptorSize, MapKey;
-    UINT32 DescriptorVer;
-    UINT32 count = 0;
-    UINTN i;
+  Print(L"\r\n===== DIMM Check Tool =====\r\n");
+  Print(L"Detected DIMM(SMBIOS Type17): %d\r\n", DimmCount);
 
-    MapSize = 0;
-    BS->GetMemoryMap(&MapSize, NULL, &MapKey, &DescriptorSize, &DescriptorVer);
-    MapSize += DescriptorSize * 4;
-    BS->AllocatePool(EfiBootServicesData, MapSize, (VOID**)&MemDesc);
-    BS->GetMemoryMap(&MapSize, MemDesc, &MapKey, &DescriptorSize, &DescriptorVer);
+  /*产线需求：预期2根内存，数量不对就阻塞等待按键确认*/
+  if(DimmCount != 2)
+  {
+    Print(L"\r\n!!! ALERT: DIMM QUANTITY MISMATCH !!!\r\n");
+    Print(L"Expect:2  Found:%d\r\n", DimmCount);
+    Print(L"Press ENTER to continue boot >>>\r\n");
 
-    for(i=0; i < MapSize; i += DescriptorSize)
-    {
-        EFI_MEMORY_DESCRIPTOR *p = (EFI_MEMORY_DESCRIPTOR*)((UINT8*)MemDesc + i);
-        if(p->Type == EfiConventionalMemory)
-        {
-            count++;
-        }
-    }
-    BS->FreePool(MemDesc);
-    return count;
-}
+    EFI_INPUT_KEY Key;
+    while(SystemTable->ConIn->ReadKeyStroke(SystemTable->ConIn, &Key) == EFI_NOT_READY);
+  }
+  else
+  {
+    Print(L"DIMM check OK, continue boot.\r\n");
+  }
 
-EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
-{
-    ST = SystemTable;
-    BS = ST->BootServices;
-    InitializeLib(ImageHandle, SystemTable);
-
-    UINT32 mem_seg_cnt = GetMemoryDimmCount();
-
-    if(mem_seg_cnt <= 1)
-    {
-        WaitUserConfirm(L"WARNING: Memory detect abnormal!\nExpected 2 DIMM, one may missing/unrecognized.\nCheck RAM module!");
-    }
-    return EFI_SUCCESS;
+  gBS->Stall(1000000);
+  return EFI_SUCCESS;
 }
