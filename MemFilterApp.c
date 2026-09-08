@@ -32,7 +32,7 @@ UefiMain (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable)
     if(Smbios.Hdr->Type == SMBIOS_TYPE_MEMORY_DEVICE)
     {
       DimmCount++;
-      /* 只打印第一根DIMM，其余全部跳过 */
+      /*只输出第1根DIMM，其余跳过*/
       if(DimmCount == 1)
       {
         SMBIOS_MEMORY_DEVICE *MemDev = (SMBIOS_MEMORY_DEVICE *)Smbios.Hdr;
@@ -43,7 +43,7 @@ UefiMain (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable)
       }
     }
 
-    /* SMBIOS结构体向后跳转 */
+    /* SMBIOS 跳转逻辑 */
     Smbios.Hdr = (SMBIOS_HEADER *)((UINT8*)Smbios.Hdr + Smbios.Hdr->Length);
     while(*((UINT8*)Smbios.Hdr)!=0 || *((UINT8*)Smbios.Hdr+1)!=0){
       Smbios.Hdr = (SMBIOS_HEADER *)((UINT8*)Smbios.Hdr + 1);
