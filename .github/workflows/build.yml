@@ -6,31 +6,42 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout source
+      - name: Checkout our repo
         uses: actions/checkout@v4
-      - name: Clone edk2
+        path: myapp
+
+      - name: Clone full edk2
         run: |
           git clone https://github.com/tianocore/edk2.git edk2 --depth=1
           cd edk2
           git submodule update --init MdePkg
-          cd ..
+
+      - name: Copy our package into edk2
+        run: |
           mkdir -p edk2/MyMemCheckPkg/MemFilterApp
-          cp MemFilterApp.c edk2/MyMemCheckPkg/MemFilterApp/
-          cp MemFilterApp.inf edk2/MyMemCheckPkg/MemFilterApp/
-          cp MyMemCheckPkg.dsc edk2/MyMemCheckPkg/
-          cp MyMemCheckPkg.dec edk2/MyMemCheckPkg/
-      - name: Install build dependencies
+          cp myapp/MemFilterApp.c      edk2/MyMemCheckPkg/MemFilterApp/
+          cp myapp/MemFilterApp.inf    edk2/MyMemCheckPkg/MemFilterApp/
+          cp myapp/MyMemCheckPkg.dsc   edk2/MyMemCheckPkg/
+          cp myapp/MyMemCheckPkg.dec   edk2/MyMemCheckPkg/
+
+      - name: Install build tools
         run: |
           sudo apt update
           sudo apt install -y gcc nasm iasl python3
-      - name: Compile EDK2
+
+      - name: Build BaseTools
         run: |
           cd edk2
-          export PACKAGES_PATH=$PWD
           make -C BaseTools
+
+      - name: Compile App
+        run: |
+          cd edk2
+          export PACKAGES_PATH="$GITHUB_WORKSPACE/edk2"
           source edksetup.sh
           build -a X64 -t GCC5 -p MyMemCheckPkg/MyMemCheckPkg.dsc
-      - name: Upload efi artifact
+
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: MemFilterAppEFI
