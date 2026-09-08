@@ -1,50 +1,57 @@
 #include <Uefi.h>
 #include <Library/UefiLib.h>
 #include <Library/UefiBootServicesTableLib.h>
-#include <Library/PrintLib.h>
-#include <Protocol/Smbios.h>
+#include <IndustryStandard/SmBios.h>
 
-EFI_STATUS EFIAPI UefiMain (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable)
+EFI_STATUS
+EFIAPI
+UefiMain (IN EFI_HANDLE ImageHandle, IN EFI_SYSTEM_TABLE *SystemTable)
 {
-  EFI_SMBIOS_PROTOCOL *Smbios = NULL;
   EFI_STATUS Status;
-  UINTN DimmCount = 0;
+  SMBIOS_TABLE_ENTRY_POINT *SmbiosEntry;
+  SMBIOS_STRUCTURE_POINTER Smbios;
+  UINT8 DimmCount = 0;
 
-  Status = gBS->LocateProtocol(&gEfiSmbiosProtocolGuid, NULL, (VOID**)&Smbios);
-  if (!EFI_ERROR(Status) && Smbios != NULL)
+  Print(L"=== DIMM Filter App: Only Report 1st DIMM ===\n");
+
+  Status = gBS->LocateProtocol(&gEfiSmbiosTableProtocolGuid, NULL, (VOID**)&SmbiosEntry);
+  if(EFI_ERROR(Status)){
+    Print(L"ERROR: Cannot find SMBIOS table, Status=%r\n", Status);
+    return Status;
+  }
+
+  Smbios.Hdr = (SMBIOS_HEADER *)SmbiosEntry->TableAddress;
+
+  while(TRUE)
   {
-    EFI_SMBIOS_HANDLE Handle = 0;
-    EFI_SMBIOS_TABLE_HEADER *Record;
-    for(;;)
+    if(Smbios.Hdr->Type == SMBIOS_TYPE_END_OF_TABLE)
     {
-      Status = Smbios->GetNext(Smbios, &Handle, NULL, &Record);
-      if (Status != EFI_SUCCESS)
-        break;
-      if (Record->Type == 17)
+      break;
+    }
+
+    if(Smbios.Hdr->Type == SMBIOS_TYPE_MEMORY_DEVICE)
+    {
+      DimmCount++;
+      /* 只打印第一根DIMM，其余全部跳过 */
+      if(DimmCount == 1)
       {
-        DimmCount++;
+        SMBIOS_MEMORY_DEVICE *MemDev = (SMBIOS_MEMORY_DEVICE *)Smbios.Hdr;
+        Print(L"------ DIMM #1 ------\n");
+        Print(L"Size(MB): %d \n", MemDev->Size);
+        Print(L"DeviceLocator: %s\n", Smbios.String(MemDev->DeviceLocator));
+        Print(L"BankLocator: %s\n", Smbios.String(MemDev->BankLocator));
       }
     }
+
+    /* SMBIOS结构体向后跳转 */
+    Smbios.Hdr = (SMBIOS_HEADER *)((UINT8*)Smbios.Hdr + Smbios.Hdr->Length);
+    while(*((UINT8*)Smbios.Hdr)!=0 || *((UINT8*)Smbios.Hdr+1)!=0){
+      Smbios.Hdr = (SMBIOS_HEADER *)((UINT8*)Smbios.Hdr + 1);
+    }
+    Smbios.Hdr = (SMBIOS_HEADER *)((UINT8*)Smbios.Hdr + 2);
   }
 
-  Print(L"\r\n===== DIMM Check Tool =====\r\n");
-  Print(L"Detected DIMM(SMBIOS Type17): %d\r\n", DimmCount);
-
-  /*产线需求：预期2根内存，数量不对就阻塞等待按键确认*/
-  if(DimmCount != 2)
-  {
-    Print(L"\r\n!!! ALERT: DIMM QUANTITY MISMATCH !!!\r\n");
-    Print(L"Expect:2  Found:%d\r\n", DimmCount);
-    Print(L"Press ENTER to continue boot >>>\r\n");
-
-    EFI_INPUT_KEY Key;
-    while(SystemTable->ConIn->ReadKeyStroke(SystemTable->ConIn, &Key) == EFI_NOT_READY);
-  }
-  else
-  {
-    Print(L"DIMM check OK, continue boot.\r\n");
-  }
-
-  gBS->Stall(1000000);
+  Print(L"HW total DIMM count: %d , Report only DIMM#1\n", DimmCount);
+  Print(L"MemFilterApp Exit\n");
   return EFI_SUCCESS;
 }
